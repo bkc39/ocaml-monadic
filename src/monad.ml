@@ -1,13 +1,13 @@
-(* A description of the monad signature, as well as concrete implementations
+(*
+ * A description of the monad signature, as well as concrete implementations
  * of commonly used monads. The monad primitives below can be combined via
  * the monad transformers provided in monad_transformers.ml
  *
- *
  * TODO:
- *   - Lift all of the instances of MonadPlus to monadPlus instances
- *   - Wrap each monad and its corresponding OPS in a module adding
- *     specific functionality.
- *   - For the above consider refactoring each monad instance into its own file
+ *   - Consider refactoring each monad instance into its own file.
+ *   - Create a .mli to hide the internal return and bind functions
+ *     for each instance.
+ *   - Implement module specific utility functions in each of the instances.
  *
  * @date  : 12/2013
  * @author: bkc
@@ -25,7 +25,6 @@ module MONAD_OPS = functor (M : MONAD) -> struct
   exception MonadException of string
 
   let fail (s : string) = return (raise (MonadException s))
-
   let ignore_out m = m >>= (fun _ -> return ())
 
   let bind (m : 'a t) (f : 'a -> 'b t) : 'b t = m >>= f
@@ -118,40 +117,31 @@ end
 
 (********************************* MONADS *************************************)
 
-module CPS (D : sig type t end ) : MONAD = struct
+module CPS_ (D : sig type t end ) : MONAD = struct
   type 'a t       = ('a -> D.t) -> D.t
   let return  x   = fun k -> k x
   let ( >>= ) m f = fun k -> m (fun x -> f x k)
 end
 
-module Identity : MONAD = struct
+module Identity_ : MONAD = struct
   type 'a t       = 'a
   let return  x   = x
   let ( >>= ) m f = f m
 end
 
-
-module Lazy : MONAD = struct
+module Lazy_ : MONAD = struct
   type 'a t       = unit -> 'a
   let return x    = fun () -> x
   let ( >>= ) m f = f (m ())
 end
 
-module ListM : MONAD = struct
-  type 'a t       = 'a list
-  let return  x   = [x]
-  let ( >>= ) m f = List.flatten (List.map f m)
-end
-
-
-
-module State (S : sig type t end) : MONAD = struct
+module State_ (S : sig type t end) : MONAD = struct
   type 'a t       = S.t -> 'a * S.t
   let return  x   = fun s -> (x,s)
   let ( >>= ) m f = fun s -> let (x,s') = m s in f x s'
 end
 
-module Reader (Env : sig type t end) : MONAD = struct
+module Reader_ (Env : sig type t end) : MONAD = struct
   type 'a t       = Env.t -> 'a
   let return  x   = fun e -> x
   let ( >>= ) m f = fun e -> f (m e) e
@@ -163,7 +153,7 @@ module type MONOID = sig
   val op : (t * t) -> t
 end
 
-module Writer (M : MONOID) : MONAD = struct
+module Writer_ (M : MONOID) : MONAD = struct
   type 'a t           = 'a * M.t
   let return  x       = (x, M.id)
   let ( >>= ) (x,w) f = let (x',w') = f x in (x', M.op (w,w'))
@@ -189,7 +179,15 @@ end
 
 (**************************** MONAD PLUS INSTANCES ****************************)
 
-module Option : MONAD_PLUS = struct
+module List_ : MONAD_PLUS = struct
+  type 'a t       = 'a list
+  let return  x   = [x]
+  let ( >>= ) m f = List.flatten (List.map f m)
+  let mzero       = []
+  let ( ++ )      = List.append
+end
+
+module Option_ : MONAD_PLUS = struct
   type 'a t = 'a option
 
   let return x = Some x
@@ -203,3 +201,26 @@ module Option : MONAD_PLUS = struct
     | Some x, _ -> Some x
     | _         -> m
 end
+
+(******************************* CREATION FUNCTORS ****************************)
+
+module MakeM (Monad : MONAD) = struct
+  include Monad
+  include MONAD_OPS (Monad)
+end
+
+module MakeMP (MonadPlus : MONAD_PLUS) = struct
+  include MonadPlus
+  include MONAD_PLUS_OPS (MonadPlus)
+end
+
+(********************************** INSTANCES *********************************)
+
+module CPS      (D : sig type t end) = MakeM  (CPS_ (D))
+module Identity                      = MakeM  (Identity_)
+module Lazy                          = MakeM  (Lazy_)
+module State    (S : sig type t end) = MakeM  (State_ (S))
+module Reader   (E : sig type t end) = MakeM  (Reader_ (E))
+module Writer   (M : MONOID)         = MakeM  (Writer_ (M))
+module ListM                         = MakeMP (List_)
+module OptionM                       = MakeMP (Option_)
