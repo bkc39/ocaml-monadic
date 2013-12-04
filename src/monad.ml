@@ -26,18 +26,20 @@ module MONAD_OPS = functor (M : MONAD) -> struct
 
   let fail (s : string) = return (raise (MonadException s))
 
+  let ignore_out m = m >>= (fun _ -> return ())
+
   let bind (m : 'a t) (f : 'a -> 'b t) : 'b t = m >>= f
   let map  (f : 'a -> 'b) (m : 'a t)   : 'b t = m >>= (fun x -> return (f x))
   let join (m : 'a t t)                : 'a t = m >>= (fun x -> x)
 
   let for_m (m : 'a t) (f : 'a -> 'b) : 'b t = m >>= (fun x -> return (f x))
-  let for_mignore m f = for_m m f >>= (fun _ -> return ())
+  let for_mio m f = for_m m f >>= (fun _ -> return ())
 
   let rec sequence = function
     | [] -> return []
     | m::ms -> sequence ms >>= (fun xs -> m >>= (fun x -> return (x::xs)))
 
-  let sequence_ignore ms = sequence ms >>= (fun _ -> return ())
+  let sequence_io ms = sequence ms >>= (fun _ -> return ())
 
   (* Infix Operators *)
   let ( >> )  (m : 'a t) (n : 'b t) : 'b t = m >>= (fun x -> n)
@@ -72,19 +74,19 @@ module MONAD_OPS = functor (M : MONAD) -> struct
     end
     | _            -> fail "zip_with_m requires arguments of equal length."
 
-  let zip_with_mignore f xs ys = (zip_with_m f xs ys) >>= (fun _ -> return ())
+  let zip_with_mio f xs ys = (zip_with_m f xs ys) >>= (fun _ -> return ())
 
   let rec fold_m (f : 'a -> 'b -> 'a t) (a : 'a) = function
     | [] -> return a
     | x::xs -> (fold_m f a xs) >>= (fun v -> f v x)
 
-  let fold_mignore f a xs = (fold_m f a xs) >>= (fun _ -> return ())
+  let fold_mio f a xs = (fold_m f a xs) >>= (fun _ -> return ())
 
   let rec replicate_m (n : int) (m : 'a t) =
     if n=0 then return []
     else (replicate_m (n-1) m) >>= (fun xs -> m >>= (fun x -> return (x::xs)))
 
-  let replicate_mignore n m = (replicate_m n m) >>= (fun _ -> return ())
+  let replicate_mio n m = (replicate_m n m) >>= (fun _ -> return ())
 
   (* Conditional Evaluvation of Monadic Expressions *)
   let whenever (b : bool) (m : unit t) =
