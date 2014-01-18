@@ -16,7 +16,7 @@
 module type MONAD = sig
   type 'a t
   val return  : 'a     -> 'a t
-  val ( >>= ) : 'a t   -> ('a -> 'b t) -> 'b t
+  val bind    : 'a t   -> ('a -> 'b t) -> 'b t
 end
 
 module MONAD_OPS = functor (M : MONAD) -> struct
@@ -25,9 +25,15 @@ module MONAD_OPS = functor (M : MONAD) -> struct
   exception MonadException of string
 
   let fail (s : string) = return (raise (MonadException s))
-  let ignore_out m = m >>= (fun _ -> return ())
+  let ignore_out m = bind m (fun _ -> return ())
 
-  let bind (m : 'a t) (f : 'a -> 'b t) : 'b t = m >>= f
+  (* Infix Operators *)
+  let ( >>= ) (m : 'a t) (f : 'a -> 'b t) : 'b t = bind m f
+  let ( >> )  (m : 'a t) (n : 'b t) : 'b t = m >>= (fun x -> n)
+  let ( <<= ) (f : 'a -> 'b t) (m : 'a t) : 'b t = m >>= f
+  let ( >=> ) (f : 'a -> 'b t) (g : 'b -> 'c t) (x : 'a) : 'c t = (f x) >>= g
+  let ( <=< ) (g : 'b -> 'c t) (f : 'a -> 'b t) (x : 'a) : 'c t = (f x) >>= g
+
   let map  (f : 'a -> 'b) (m : 'a t)   : 'b t = m >>= (fun x -> return (f x))
   let join (m : 'a t t)                : 'a t = m >>= (fun x -> x)
 
@@ -39,12 +45,6 @@ module MONAD_OPS = functor (M : MONAD) -> struct
     | m::ms -> sequence ms >>= (fun xs -> m >>= (fun x -> return (x::xs)))
 
   let sequence_io ms = sequence ms >>= (fun _ -> return ())
-
-  (* Infix Operators *)
-  let ( >> )  (m : 'a t) (n : 'b t) : 'b t = m >>= (fun x -> n)
-  let ( <<= ) (f : 'a -> 'b t) (m : 'a t) : 'b t = m >>= f
-  let ( >=> ) (f : 'a -> 'b t) (g : 'b -> 'c t) (x : 'a) : 'c t = (f x) >>= g
-  let ( <=< ) (g : 'b -> 'c t) (f : 'a -> 'b t) (x : 'a) : 'c t = (f x) >>= g
 
   let rec forever (m : 'a t) : 'b t = m >>= (fun _ -> forever m)
   let void (m : 'a t) = m >>= (fun _ -> return ())
@@ -118,33 +118,33 @@ end
 (********************************* MONADS *************************************)
 
 module CPS_ (D : sig type t end ) : MONAD = struct
-  type 'a t       = ('a -> D.t) -> D.t
-  let return  x   = fun k -> k x
-  let ( >>= ) m f = fun k -> m (fun x -> f x k)
+  type 'a t      = ('a -> D.t) -> D.t
+  let return x   = fun k -> k x
+  let bind   m f = fun k -> m (fun x -> f x k)
 end
 
 module Identity_ : MONAD = struct
-  type 'a t       = 'a
-  let return  x   = x
-  let ( >>= ) m f = f m
+  type 'a t      = 'a
+  let return x   = x
+  let bind   m f = f m
 end
 
 module Lazy_ : MONAD = struct
-  type 'a t       = unit -> 'a
-  let return x    = fun () -> x
-  let ( >>= ) m f = f (m ())
+  type 'a t      = unit -> 'a
+  let return x   = fun () -> x
+  let bind   m f = f (m ())
 end
 
 module State_ (S : sig type t end) : MONAD = struct
-  type 'a t       = S.t -> 'a * S.t
-  let return  x   = fun s -> (x,s)
-  let ( >>= ) m f = fun s -> let (x,s') = m s in f x s'
+  type 'a t      = S.t -> 'a * S.t
+  let return x   = fun s -> (x,s)
+  let bind   m f = fun s -> let (x,s') = m s in f x s'
 end
 
 module Reader_ (Env : sig type t end) : MONAD = struct
-  type 'a t       = Env.t -> 'a
-  let return  x   = fun e -> x
-  let ( >>= ) m f = fun e -> f (m e) e
+  type 'a t      = Env.t -> 'a
+  let return x   = fun e -> x
+  let bind   m f = fun e -> f (m e) e
 end
 
 module type MONOID = sig
@@ -154,9 +154,9 @@ module type MONOID = sig
 end
 
 module Writer_ (M : MONOID) : MONAD = struct
-  type 'a t           = 'a * M.t
-  let return  x       = (x, M.id)
-  let ( >>= ) (x,w) f = let (x',w') = f x in (x', M.op (w,w'))
+  type 'a t          = 'a * M.t
+  let return x       = (x, M.id)
+  let bind   (x,w) f = let (x',w') = f x in (x', M.op (w,w'))
 end
 
 (******************************* MONAD PLUS ***********************************)
@@ -181,8 +181,8 @@ end
 
 module List_ : MONAD_PLUS = struct
   type 'a t       = 'a list
-  let return  x   = [x]
-  let ( >>= ) m f = List.flatten (List.map f m)
+  let return x   = [x]
+  let bind   m f = List.flatten (List.map f m)
   let mzero       = []
   let ( ++ )      = List.append
 end
@@ -192,7 +192,7 @@ module Option_ : MONAD_PLUS = struct
 
   let return x = Some x
 
-  let ( >>= ) m f = match m with
+  let bind m f = match m with
     | Some x -> f x
     | None   -> None
 
