@@ -19,7 +19,7 @@ module type MONAD = sig
   val bind    : 'a t   -> ('a -> 'b t) -> 'b t
 end
 
-module MONAD_OPS = functor (M : MONAD) -> struct
+module MONAD_UTILS = functor (M : MONAD) -> struct
   open M
 
   exception MonadException of string
@@ -168,8 +168,8 @@ module type MONAD_PLUS = sig
   val ( ++ ) : 'a t -> 'a t -> 'a t
 end
 
-module MONAD_PLUS_OPS (P : MONAD_PLUS) = struct
-  include MONAD_OPS(P)
+module MONAD_PLUS_UTILS (P : MONAD_PLUS) = struct
+  include MONAD_UTILS (P)
   open P
 
   let msum ms     = List.fold_left ( ++ ) mzero ms
@@ -206,12 +206,12 @@ end
 
 module MakeM (Monad : MONAD) = struct
   include Monad
-  include MONAD_OPS (Monad)
+  include MONAD_UTILS (Monad)
 end
 
 module MakeMP (MonadPlus : MONAD_PLUS) = struct
   include MonadPlus
-  include MONAD_PLUS_OPS (MonadPlus)
+  include MONAD_PLUS_UTILS (MonadPlus)
 end
 
 (********************************** INSTANCES *********************************)
