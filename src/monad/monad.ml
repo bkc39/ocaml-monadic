@@ -19,20 +19,25 @@ module type MONAD = sig
   val bind    : 'a t   -> ('a -> 'b t) -> 'b t
 end
 
-module MONAD_UTILS = functor (M : MONAD) -> struct
+module MONAD_INFIX = functor (M : MONAD) -> struct
   open M
-
-  exception MonadException of string
-
-  let fail (s : string) = return (raise (MonadException s))
-  let ignore_out m = bind m (fun _ -> return ())
-
   (* Infix Operators *)
   let ( >>= ) (m : 'a t) (f : 'a -> 'b t) : 'b t = bind m f
   let ( >> )  (m : 'a t) (n : 'b t) : 'b t = m >>= (fun x -> n)
   let ( <<= ) (f : 'a -> 'b t) (m : 'a t) : 'b t = m >>= f
   let ( >=> ) (f : 'a -> 'b t) (g : 'b -> 'c t) (x : 'a) : 'c t = (f x) >>= g
   let ( <=< ) (g : 'b -> 'c t) (f : 'a -> 'b t) (x : 'a) : 'c t = (f x) >>= g
+end    
+
+module MONAD_UTILS = functor (M : MONAD) -> struct
+  open M
+  module Infix = MONAD_INFIX (M)
+  open Infix
+
+  exception MonadException of string
+
+  let fail (s : string) = return (raise (MonadException s))
+  let ignore_out m = bind m (fun _ -> return ())
 
   let map  (f : 'a -> 'b) (m : 'a t)   : 'b t = m >>= (fun x -> return (f x))
   let join (m : 'a t t)                : 'a t = m >>= (fun x -> x)
@@ -164,13 +169,22 @@ end
 module type MONAD_PLUS = sig
   include MONAD
 
-  val mzero  : 'a t
-  val ( ++ ) : 'a t -> 'a t -> 'a t
+  val mzero : 'a t
+  val mplus : 'a t -> 'a t -> 'a t
+end
+
+module MONAD_PLUS_INFIX = functor (P : MONAD_PLUS) -> struct
+  let ( ++ ) = P.mplus
 end
 
 module MONAD_PLUS_UTILS (P : MONAD_PLUS) = struct
+  module PlusInfix = MONAD_PLUS_INFIX (P)
+
   include MONAD_UTILS (P)
+
   open P
+  open Infix
+  open PlusInfix
 
   let msum ms     = List.fold_left ( ++ ) mzero ms
   let mfilter p m = m >>= (fun x -> if p x then return x else mzero)
@@ -180,11 +194,11 @@ end
 (**************************** MONAD PLUS INSTANCES ****************************)
 
 module List_ : MONAD_PLUS = struct
-  type 'a t       = 'a list
+  type 'a t      = 'a list
   let return x   = [x]
   let bind   m f = List.flatten (List.map f m)
-  let mzero       = []
-  let ( ++ )      = List.append
+  let mzero      = []
+  let mplus      = List.append
 end
 
 module Option_ : MONAD_PLUS = struct
@@ -196,8 +210,8 @@ module Option_ : MONAD_PLUS = struct
     | Some x -> f x
     | None   -> None
 
-  let mzero = None
-  let ( ++ ) n m = match n,m with
+  let mzero     = None
+  let mplus n m = match n,m with
     | Some x, _ -> Some x
     | _         -> m
 end
